@@ -14,5 +14,10 @@ pub fn build(b: *std.Build) void {
 
     dll.linkLibC();
 
+    const debug_logs = b.option(bool, "debug-logs", "emit debug logs") orelse false;
+    const options = b.addOptions();
+    options.addOption(bool, "debug_logs", debug_logs);
+    dll.root_module.addOptions("build_options", options);
+
     b.installArtifact(dll);
 }

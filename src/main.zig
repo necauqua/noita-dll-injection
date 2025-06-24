@@ -41,6 +41,7 @@ pub fn DllMain(hModule: ?*anyopaque, dwReason: u32, lpReserved: ?*anyopaque) cal
                 _ = win.MessageBoxA(null, msg, "Noita DLL Injection Error", win.MB_OK);
             };
 
+            // return win.FALSE;
             return win.TRUE;
         },
         win.DLL_PROCESS_DETACH => {
