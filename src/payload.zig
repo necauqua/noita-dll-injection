@@ -1,116 +1,202 @@
+const expect = @import("std").testing.expect;
 const std = @import("std");
+
+const debug = @import("debug.zig");
+const Patcher = @import("patcher.zig");
+const StdString = @import("cpp.zig").StdString;
+
 const win = @cImport({
     @cInclude("windows.h");
 });
-const scan = @import("scan.zig");
-const debug = @import("debug.zig");
 
-const StdString = extern struct {
-    repr: extern union {
-        small: [16]u8,
-        heap: [*c]const u8,
-    },
-    len: u32,
-    cap: u32,
+// In short, we find the second reference to static string "settings.lua\0" in
+// the code, then we find a second __thiscall call that follows it, which is
+// the call to monomorphised vector::add function, which adds a Mod-like
+// structure to a list of such structures.
+//
+// We then patch the call to that function to our own wrapper function, which
+// calls the original, but first it also forces the "invalid" mods (the ones
+// loaded from workshop that had request_no_api_restriction="true" set in
+// mod.xml) to have that flag set to false and request_no_api_restriction back
+// to true.
+pub fn run() !void {
+    const patcher = try Patcher.init();
 
-    fn as_slice(s: *const StdString) []const u8 {
-        return if (s.cap <= 0xf) s.repr.small[0..s.len :0] else s.repr.heap[0..s.len :0];
-    }
-};
+    try vectorAddPatch(&patcher);
+    try modConfigCheckPatch(&patcher);
+    try fixUnsafePopupPatch(&patcher);
+
+    try addUnsafeModBanners(&patcher);
+}
 
 const ReadMod = extern struct {
     name: StdString,
-    _skip1: [0x78]u8,
+    _skip1: [30]u32,
     request_no_api_restriction: bool,
-    _pad: [3]u8,
-    _skip2: [164]u8,
+    _padding: [3]u8,
+    _skip2: [37]u32,
+    workshop_id: u64,
+    _compatibility: [2]u32,
     invalid: bool,
+    _padding2: [3]u8,
 };
 
-const StdVec = *opaque {};
+fn vectorAddPatch(patcher: *const Patcher) !void {
+    const push = try patcher.findStringPush("settings.lua", .{ .skip = 1 });
 
-var originalVectorAdd: ?*const fn (
-    vec: *StdVec,
-    value: *ReadMod,
-) callconv(.{ .x86_thiscall = .{} }) void = null;
+    // 0x50 is PUSH EAX, 0xE8 is CALL <displacement>
+    const vectorAddCall = (try patcher.text.scan(&[_]u8{ 0x50, 0xE8 }, .{ .at = push, .skip = 1 })) + 1;
 
-fn wrappedVectorAdd(
-    vec: *StdVec,
-    value: *ReadMod,
-) callconv(.{ .x86_thiscall = .{} }) void {
-    const original = originalVectorAdd orelse unreachable;
+    debug.log(@src(), "Found a second __thiscall call at 0x{x}", .{vectorAddCall});
 
-    if (value.invalid) {
-        debug.log(" \"invalid\" mod found ({s})! Fixing it up", .{value.name.as_slice()});
-        value.invalid = false;
-        value.request_no_api_restriction = true;
-    }
+    try patcher.wrapCall(vectorAddCall, struct {
+        pub var original: ?*const @TypeOf(replacement) = null;
 
-    original(vec, value);
+        pub fn replacement(vec: *opaque {}, value: *ReadMod) callconv(.{ .x86_thiscall = .{} }) void {
+            if (value.invalid) {
+                debug.log(@src(), "invalid=true mod found, patching: {s} (workshop id: {})", .{ value.name.as_slice(), value.workshop_id });
+                value.invalid = false;
+                value.request_no_api_restriction = true;
+            }
+            const o = original orelse unreachable;
+            o(vec, value);
+        }
+    });
 }
 
-pub fn run() !void {
-    const sections = try scan.Sections.find();
+fn modConfigCheckPatch(patcher: *const Patcher) !void {
+    var offset = @intFromPtr(&patcher.text.section[0]);
 
-    var location = sections.rdata.scan("settings.lua\x00", .{}) orelse {
-        return error.SettingsLuaStringNotFound;
-    };
+    // the infinite loop breaks either if we find the thing, or the scan will fail after going through any matches
+    while (true) {
+        // don't like this, but this CMP BYTE PTR [EAX + 0x93], 0x0 seems unique,
+        // the only place where we put pointer to big mod struct into EAX and check for is_translation
+        const is_translation_cmp = try patcher.text.scan(&[_]u8{ 0x80, 0xb8, 0x93, 0x00, 0x00, 0x00, 0x00 }, .{ .at = offset });
+        debug.log(@src(), "Found is_translation CMP at 0x{x}", .{is_translation_cmp});
 
-    debug.log("Found \"settings.lua\\0\" at 0x{x}", .{location});
+        // chack that the prev instruction (skipping a jz) is what we look for
+        const request_no_api_restriction_cmp = is_translation_cmp - 2 - 7;
+        const ptr: [*]u8 = @ptrFromInt(request_no_api_restriction_cmp);
+        if (std.mem.eql(u8, ptr[0..7], &[_]u8{ 0x80, 0xb8, 0x90, 0x00, 0x00, 0x00, 0x00 })) {
+            // reuse offset as the return of the loop
+            offset = request_no_api_restriction_cmp;
+            break;
+        }
 
-    const le_value = std.mem.nativeToLittle(usize, location);
-    const push = [_]u8{0x68} ++ std.mem.asBytes(&le_value);
-
-    location = sections.text.scan(push, .{ .skip = 1 }) orelse {
-        return error.PushSettingsLuaNotFound;
-    };
-
-    debug.log("Found second PUSH \"settings.lua\\0\" 0x{x}", .{location});
-
-    const vectorAddCall = sections.text.scan(&[_]u8{ 0x50, 0xE8 }, .{ .after = location, .skip = 1 }) orelse {
-        return error.VectorAddCallNotFound;
-    };
-
-    debug.log("Found a second __thiscall call at 0x{x}", .{vectorAddCall + 1});
-
-    const ptr: [*]u8 = @ptrFromInt(vectorAddCall + 2);
-
-    const base = vectorAddCall + 2 + 4;
-    const offset = std.mem.readInt(u32, ptr[0..4], .little);
-
-    const original = base + offset;
-    originalVectorAdd = @ptrFromInt(original);
-    debug.log("Original call is to 0x{x}", .{original});
-
-    const ourFn = @intFromPtr(&wrappedVectorAdd);
-
-    debug.log("Replacing with call to 0x{x}", .{ourFn});
-
-    var buffer: [4]u8 = undefined;
-    std.mem.writeInt(u32, &buffer, ourFn - base, .little);
-
-    try patchCode(vectorAddCall + 2, &buffer);
-}
-
-pub fn patchCode(address: usize, patch: []const u8) !void {
-    var old_protect: win.DWORD = undefined;
-
-    debug.log("Un-protecting {} bytes at address 0x{x}", .{ patch.len, address });
-
-    const result = win.VirtualProtect(@ptrFromInt(address), patch.len, win.PAGE_EXECUTE_READWRITE, &old_protect);
-
-    if (result == 0) {
-        return error.VirtualUnprotectFailed;
+        // in case the is_translation CMP *somehow* is not unique, we overall look for the
+        // CMP is_translation preceeded by a CMP request_no_api_restriction skipping a JZ lol
+        //
+        // but this loop will usually only run once, a little goto action here
+        offset = is_translation_cmp + 7;
     }
 
-    const target: [*]u8 = @ptrFromInt(address);
-    @memcpy(target[0..patch.len], patch);
+    debug.log(@src(), "Found request_no_api_restriction CMP at 0x{x}", .{offset});
 
-    debug.log("Re-protecting {} bytes at address 0x{x}", .{ patch.len, address });
-    _ = win.VirtualProtect(@ptrFromInt(address), patch.len, old_protect, &old_protect);
+    // replace `CMP thing, 0` with `TEST thing, 0` (keeping the displacement)
+    // to make the comparison always succeed
+    try patcher.write(offset, &[_]u8{ 0xF6, 0x80 });
+}
 
-    // debug.log("Flushing instruction cache for {} bytes at address 0x{x}", .{ patch.len, address });
-    // if (win.FlushInstructionCache(win.GetCurrentProcess(), @ptrFromInt(address), patch.len) == 0) {
-    //     return error.FlushInstructionCacheFailed;
-    // }
+fn fixUnsafePopupPatch(patcher: *const Patcher) !void {
+    const push = try patcher.findStringPush("$menu_mods_extraprivilegesnotification", .{});
+    const function = try patcher.findFunctionContaining(push);
+
+    debug.log(@src(), "Found unsafe dialog function at 0x{x}", .{function});
+
+    const usage = try patcher.text.scan(function, .{});
+
+    debug.log(@src(), "Found unsafe dialog function usage at 0x{x}", .{usage});
+
+    const jump = try patcher.text.scan(&[_]u8{ 0x0F, 0x85 }, .{ .at = usage, .dir = .back });
+
+    try patcher.write(jump, &[_]u8{0x90} ** 6);
+}
+
+fn addUnsafeModBanners(patcher: *const Patcher) !void {
+    const push = try patcher.findStringPush("$menu_mods_moveup", .{});
+    const drawButtonCall = (try patcher.text.scan(&[_]u8{ 0x50, 0xE8 }, .{ .at = push, .skip = 2 })) + 1;
+
+    try patcher.wrapCall(drawButtonCall, struct {
+        pub var original: ?*const @TypeOf(replacement) = null;
+
+        const Color = extern struct {
+            flag: u32 = 4, // always 4?
+            red: f32,
+            green: f32,
+            blue: f32,
+            alpha: f32 = 1.0,
+        };
+
+        const Response = extern struct {
+            clicked: bool,
+            _unknown: bool,
+            right_clicked: bool,
+            hovered: bool,
+            _ignored: [19]u32,
+        };
+
+        pub fn replacement(
+            self: *opaque {},
+            out_response: *Response,
+            id1: u32,
+            id2: u32,
+            text: *StdString,
+            flags1: u32,
+            flags2: u32,
+            layer: u32,
+            scale: f32,
+            font: *opaque {},
+            color: *Color,
+            x: f32,
+            y: f32,
+        ) callconv(.{ .x86_thiscall = .{} }) *Response {
+            // idk how brittle this is, probably very
+            const mod = asm volatile ("movl %%esi, %[result]"
+                : [result] "=r" (-> *ReadMod),
+                :
+                : "memory"
+            );
+            const o = original orelse unreachable;
+
+            const NEXT_SAME_LINE = 0x4000;
+            const NON_INTERACTIVE = 0x4;
+
+            var extra_flag: u32 = 0;
+            if (mod.request_no_api_restriction) {
+                const slice = text.as_slice();
+                if (std.mem.startsWith(u8, slice, "[ ] ") or std.mem.startsWith(u8, slice, "[x] ")) {
+                    var buf: [200]u8 = undefined;
+                    text.assign(std.fmt.bufPrint(&buf, "{s}           {s}", .{ slice[0..3], slice[3..] }) catch "<error>");
+                }
+                extra_flag = NEXT_SAME_LINE;
+            }
+
+            const resp = o(self, out_response, id1, id2, text, flags1 | extra_flag, flags2, layer, scale, font, color, x, y);
+
+            if (mod.request_no_api_restriction) {
+                var prefix = StdString.fromSlice("     [unsafe]");
+                defer prefix.deinit();
+
+                const flags: u32 = NON_INTERACTIVE;
+
+                var c = Color{
+                    .red = 1.0,
+                    .green = 0.2,
+                    .blue = 0.2,
+                };
+                if (resp.hovered) {
+                    c.green = 0.8;
+                    c.blue = 0.8;
+                }
+                if (flags1 & 0x4000000 != 0) {
+                    c.alpha = 0.6;
+                }
+
+                var response = std.mem.zeroes(Response);
+                _ = o(self, &response, id1 + 1, id2, &prefix, flags, 0, layer, scale, font, &c, x, y);
+            }
+
+            return resp;
+        }
+    });
 }

@@ -1,10 +1,13 @@
 const std = @import("std");
+
 const win = @cImport({
     @cInclude("windows.h");
 });
 
+var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+const alloc = arena.allocator();
+
 pub fn popup(comptime fmt: []const u8, args: anytype) void {
-    const alloc = std.heap.page_allocator;
     const msg = std.fmt.allocPrintZ(alloc, fmt, args) catch @panic("oom");
     defer alloc.free(msg);
 
@@ -13,26 +16,29 @@ pub fn popup(comptime fmt: []const u8, args: anytype) void {
 
 var file_handle: ?win.HANDLE = null;
 
-pub fn log(comptime fmt: []const u8, args: anytype) void {
+pub fn log(src: std.builtin.SourceLocation, comptime fmt: []const u8, args: anytype) void {
     if (comptime !@import("build_options").debug_logs) {
         return;
     }
 
-    if (file_handle == null) {
-        file_handle = win.CreateFileA("noita-dll-injection-log.txt", win.GENERIC_WRITE, 0, null, win.CREATE_ALWAYS, win.FILE_ATTRIBUTE_NORMAL, null);
-        if (file_handle == win.INVALID_HANDLE_VALUE) {
-            file_handle = null;
+    const handle = file_handle orelse blk: {
+        const h = win.CreateFileA("noita-dll-injection-log.txt", win.GENERIC_WRITE, 0, null, win.CREATE_ALWAYS, win.FILE_ATTRIBUTE_NORMAL | win.FILE_FLAG_NO_BUFFERING, null);
+        if (h == win.INVALID_HANDLE_VALUE) {
             return;
         }
-    }
+        break :blk h;
+    };
 
-    if (file_handle) |handle| {
-        const alloc = std.heap.page_allocator;
-        const msg = std.fmt.allocPrint(alloc, fmt ++ "\n", args) catch @panic("oom");
-        defer alloc.free(msg);
+    const suffix = ".zig";
+    const file = if (std.mem.endsWith(u8, src.file, suffix))
+        src.file[0 .. src.file.len - suffix.len]
+    else
+        src.file;
 
-        var bytes_written: win.DWORD = 0;
-        _ = win.WriteFile(handle, @ptrCast(msg), msg.len, &bytes_written, null);
-        _ = win.FlushFileBuffers(handle);
-    }
+    const msg = std.fmt.allocPrint(alloc, "[{s}:{}] " ++ fmt ++ "\n", .{ file, src.line } ++ args) catch @panic("oom");
+    defer alloc.free(msg);
+
+    var bytes_written: win.DWORD = 0;
+    _ = win.WriteFile(handle, @ptrCast(msg), msg.len, &bytes_written, null);
+    _ = win.FlushFileBuffers(handle);
 }
