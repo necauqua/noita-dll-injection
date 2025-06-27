@@ -17,11 +17,10 @@ To easily find the directory, in Steam right-click on the game in your library,
 go to "Manage" -> "Browse local files". This will open the correct folder, just
 drag the DLL over there.
 
-> [!NOTE] Linux
-> Because of the way Proton changes how DLLs are loaded, for this to work on
-> Linux you need to set `WINEDLLOVERRIDES=winmm=n,b %command%` in the game
-> launch options in Steam in addition to adding the DLL in the game folder
-> for this to work.
+> [!NOTE]
+> On Linux, due to the way Proton changes how DLLs are loaded, for this to work
+> you need to set `WINEDLLOVERRIDES=winmm=n,b %command%` in the game launch
+> options in Steam in addition to adding the DLL in the game folder.
 
 ## How it works
 DLL injection is a simple technique where you "trick" an executable into
