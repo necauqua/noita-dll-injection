@@ -188,12 +188,14 @@ fn addUnsafeModBanners(patcher: *const Patcher) !void {
                     c.green = 0.8;
                     c.blue = 0.8;
                 }
+                var offset: f32 = 1.0;
                 if (flags1 & 0x4000000 != 0) {
                     c.alpha = 0.6;
+                    offset = 0.0;
                 }
 
                 var response = std.mem.zeroes(Response);
-                _ = o(self, &response, id1 + 1, id2, &prefix, flags, 0, layer, scale, font, &c, x, y);
+                _ = o(self, &response, id1 + 1, id2, &prefix, flags, 0, layer, scale, font, &c, x + offset, y);
             }
 
             return resp;
