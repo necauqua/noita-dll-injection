@@ -18,10 +18,11 @@ fn mkLib(b: *std.Build) std.Build.LibraryOptions {
 
 pub fn build(b: *std.Build) void {
     const lib = b.addLibrary(mkLib(b));
-    lib.root_module.optimize = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{});
+    lib.root_module.optimize = optimize;
 
     const options = b.addOptions();
-    options.addOption(bool, "debug_logs", b.option(bool, "debug-logs", "emit debug logs") orelse false);
+    options.addOption(bool, "debug_logs", b.option(bool, "debug-logs", "emit debug logs") orelse (optimize == .Debug));
     lib.root_module.addOptions("build_options", options);
 
     b.installArtifact(lib);
