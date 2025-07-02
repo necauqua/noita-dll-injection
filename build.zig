@@ -1,6 +1,6 @@
 const std = @import("std");
 
-fn mkLib(b: *std.Build) std.Build.LibraryOptions {
+fn mkLib(b: *std.Build, optimize: std.builtin.OptimizeMode) std.Build.LibraryOptions {
     return .{
         .name = "winmm",
         .linkage = .dynamic,
@@ -12,27 +12,15 @@ fn mkLib(b: *std.Build) std.Build.LibraryOptions {
                 .os_tag = .windows,
                 .abi = .gnu,
             }),
+            .optimize = optimize,
         }),
     };
 }
 
 pub fn build(b: *std.Build) void {
-    const lib = b.addLibrary(mkLib(b));
-    const optimize = b.standardOptimizeOption(.{});
-    lib.root_module.optimize = optimize;
-
-    const options = b.addOptions();
-    options.addOption(bool, "debug_logs", b.option(bool, "debug-logs", "emit debug logs") orelse (optimize == .Debug));
-    lib.root_module.addOptions("build_options", options);
-
-    b.installArtifact(lib);
+    b.installArtifact(b.addLibrary(mkLib(b, b.standardOptimizeOption(.{}))));
 
     // for zls
-    const check = b.addLibrary(mkLib(b));
-    const check_options = b.addOptions();
-    check_options.addOption(bool, "debug_logs", true);
-    check.root_module.addOptions("build_options", check_options);
-    check.root_module.optimize = .Debug;
-
+    const check = b.addLibrary(mkLib(b, .Debug));
     b.step("check", "Check if it compiles").dependOn(&check.step);
 }

@@ -4,16 +4,28 @@ const win = @cImport({
     @cInclude("windows.h");
 });
 
-var operator_new_ptr: ?*fn (size: usize) callconv(.C) ?*anyopaque = null;
-var operator_delete_ptr: ?*fn (ptr: *anyopaque) callconv(.C) void = null;
-
 const FARPROC = *opaque {};
 extern "kernel32" fn GetProcAddress(hModule: win.HMODULE, lpProcName: win.LPCSTR) callconv(.{ .x86_stdcall = .{} }) ?FARPROC;
 
+var operator_new_ptr: ?*fn (size: usize) callconv(.C) ?*anyopaque = null;
+var operator_delete_ptr: ?*fn (ptr: *anyopaque) callconv(.C) void = null;
+
+var dll: ?win.HMODULE = null;
+
 pub fn init() !void {
-    const dll = win.LoadLibraryA("msvcr120.dll") orelse return error.MsvcrLinkFail;
-    operator_new_ptr = @ptrCast(GetProcAddress(dll, "??2@YAPAXI@Z"));
-    operator_delete_ptr = @ptrCast(GetProcAddress(dll, "??3@YAXPAX@Z"));
+    const handle = win.LoadLibraryA("msvcr120.dll") orelse return error.MsvcrLoadFailed;
+    operator_new_ptr = @ptrCast(GetProcAddress(handle, "??2@YAPAXI@Z"));
+    operator_delete_ptr = @ptrCast(GetProcAddress(handle, "??3@YAXPAX@Z"));
+    dll = handle;
+}
+
+pub fn deinit() void {
+    if (dll) |handle| {
+        _ = win.FreeLibrary(handle);
+        dll = null;
+    }
+    operator_new_ptr = null;
+    operator_delete_ptr = null;
 }
 
 fn operator_new(size: usize) ?*anyopaque {
@@ -99,8 +111,11 @@ pub const StdString = extern struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
         _ = options;
-        try writer.print("\"{s}\"", .{s.as_slice()});
+        if (std.mem.eql(fmt, fmt, "s")) {
+            try writer.print("{s}", .{s.as_slice()});
+        } else {
+            try writer.print("\"{s}\"", .{s.as_slice()});
+        }
     }
 };

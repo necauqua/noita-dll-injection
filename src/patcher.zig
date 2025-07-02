@@ -1,13 +1,13 @@
 const std = @import("std");
 
-const debug = @import("debug.zig");
-
 const win = @cImport({
     @cInclude("windows.h");
 });
 
 // again the windows.h one does not work :(
 extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.winapi) ?*opaque {};
+
+const log = std.log.scoped(.patcher);
 
 pub const Section = struct {
     section: []const u8,
@@ -92,20 +92,20 @@ pub fn init() !Patcher {
 
 pub fn findString(s: *const Patcher, comptime string: []const u8) !usize {
     const location = s.rdata.scan(string ++ "\x00", .{}) catch {
-        debug.log(@src(), "String \"{s}\" not found", .{string});
+        log.debug("String \"{s}\" not found", .{string});
         return error.StaticStringNotFound;
     };
-    debug.log(@src(), "Found string \"{s}\" at 0x{x}", .{ string, location });
+    log.debug("Found string \"{s}\" at 0x{x}", .{ string, location });
     return location;
 }
 
 pub fn findStringPush(s: *const Patcher, comptime string: []const u8, params: Section.ScanParams) !usize {
     const str = try s.findString(string);
     const location = s.text.scan([_]u8{0x68} ++ toBytes(str), params) catch {
-        debug.log(@src(), "PUSH \"{s}\" #{} not found", .{ string, params.skip });
+        log.debug("PUSH \"{s}\" #{} not found", .{ string, params.skip });
         return error.PushStringNotFound;
     };
-    debug.log(@src(), "Found PUSH \"{s}\" #{} at 0x{x}", .{ string, params.skip, location });
+    log.debug("Found PUSH \"{s}\" #{} at 0x{x}", .{ string, params.skip, location });
     return location;
 }
 
@@ -124,7 +124,7 @@ pub fn write(s: *const Patcher, address: usize, patch: anytype) !void {
 
     var old_protect: win.DWORD = undefined;
 
-    debug.log(@src(), "Un-protecting {} bytes at address 0x{x}", .{ bytes.len, address });
+    log.debug("Un-protecting {} bytes at address 0x{x}", .{ bytes.len, address });
 
     const target: [*]u8 = @ptrFromInt(address);
 
@@ -132,31 +132,32 @@ pub fn write(s: *const Patcher, address: usize, patch: anytype) !void {
         return error.VirtualUnprotectFailed;
     }
 
-    debug.log(@src(), "Patching {} bytes at address 0x{x} with {x}", .{ bytes.len, address, bytes });
+    log.debug("Patching {} bytes at address 0x{x} with {x}", .{ bytes.len, address, bytes });
     @memcpy(target[0..bytes.len], bytes);
 
-    debug.log(@src(), "Re-protecting {} bytes at address 0x{x}", .{ bytes.len, address });
+    log.debug("Re-protecting {} bytes at address 0x{x}", .{ bytes.len, address });
 
     _ = win.VirtualProtect(target, bytes.len, old_protect, &old_protect);
+    _ = win.FlushInstructionCache(win.GetCurrentProcess(), target, bytes.len);
 }
 
 pub fn wrapCall(s: *const Patcher, callAddress: usize, comptime wrapper: type) !void {
     var ptr: [*]u8 = @ptrFromInt(callAddress);
     if (ptr[0] != 0xE8) {
-        debug.log(@src(), "Trying to patch a CALL at 0x{x} which is not a CALL", .{callAddress});
+        log.debug("Trying to patch a CALL at 0x{x} which is not a CALL", .{callAddress});
         return error.NotACall;
     }
 
     const base = callAddress + 5;
     const location = base + std.mem.readInt(u32, ptr[1..5], .little);
 
-    debug.log(@src(), "Patching CALL at 0x{x}, original function was 0x{x}", .{ callAddress, location });
+    log.debug("Patching CALL at 0x{x}, original function was 0x{x}", .{ callAddress, location });
 
     wrapper.original = @ptrFromInt(location);
 
     const ourFn = @intFromPtr(&wrapper.replacement);
 
-    debug.log(@src(), "Patching CALL at 0x{x} to use our function at 0x{x}", .{ callAddress, ourFn });
+    log.debug("Patching CALL at 0x{x} to use our function at 0x{x}", .{ callAddress, ourFn });
 
     try s.write(callAddress + 1, ourFn - base);
 }
