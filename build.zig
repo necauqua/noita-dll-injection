@@ -18,9 +18,12 @@ fn mkLib(b: *std.Build, optimize: std.builtin.OptimizeMode) std.Build.LibraryOpt
 }
 
 pub fn build(b: *std.Build) void {
-    b.installArtifact(b.addLibrary(mkLib(b, b.standardOptimizeOption(.{}))));
+    const lib = b.addLibrary(mkLib(b, b.standardOptimizeOption(.{})));
+    lib.addLibraryPath(.{ .cwd_relative = "lib" });
+    b.installArtifact(lib);
 
-    // for zls
+    // zls:
     const check = b.addLibrary(mkLib(b, .Debug));
+    check.addLibraryPath(.{ .cwd_relative = "lib" });
     b.step("check", "Check if it compiles").dependOn(&check.step);
 }

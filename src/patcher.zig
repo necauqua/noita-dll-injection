@@ -1,11 +1,5 @@
 const std = @import("std");
-
-const win = @cImport({
-    @cInclude("windows.h");
-});
-
-// again the windows.h one does not work :(
-extern "kernel32" fn GetModuleHandleA(lpModuleName: ?[*:0]const u8) callconv(.winapi) ?*opaque {};
+const win = std.os.windows;
 
 const log = std.log.scoped(.patcher);
 
@@ -52,7 +46,7 @@ text: Section,
 const Patcher = @This();
 
 pub fn init() !Patcher {
-    const base = @intFromPtr(GetModuleHandleA(null));
+    const base = @intFromPtr(std.os.windows.kernel32.GetModuleHandleW(null));
 
     const e_lfanew = @as(*const u32, @ptrFromInt(base + 0x3c)).*;
 
@@ -121,24 +115,16 @@ pub fn write(s: *const Patcher, address: usize, patch: anytype) !void {
     _ = s;
 
     const bytes = toBytes(patch);
-
-    var old_protect: win.DWORD = undefined;
-
-    log.debug("Un-protecting {} bytes at address 0x{x}", .{ bytes.len, address });
-
     const target: [*]u8 = @ptrFromInt(address);
 
-    if (win.VirtualProtect(target, bytes.len, win.PAGE_EXECUTE_READWRITE, &old_protect) == 0) {
-        return error.VirtualUnprotectFailed;
-    }
+    log.debug("Un-protecting {} bytes at address 0x{x}", .{ bytes.len, address });
+    const old_protect = try win.VirtualProtectEx(win.self_process_handle, target, bytes.len, win.PAGE_EXECUTE_READWRITE);
 
     log.debug("Patching {} bytes at address 0x{x} with {x}", .{ bytes.len, address, bytes });
     @memcpy(target[0..bytes.len], bytes);
 
     log.debug("Re-protecting {} bytes at address 0x{x}", .{ bytes.len, address });
-
-    _ = win.VirtualProtect(target, bytes.len, old_protect, &old_protect);
-    _ = win.FlushInstructionCache(win.GetCurrentProcess(), target, bytes.len);
+    _ = try win.VirtualProtectEx(win.self_process_handle, target, bytes.len, old_protect);
 }
 
 pub fn wrapCall(s: *const Patcher, callAddress: usize, comptime wrapper: type) !void {
@@ -148,26 +134,30 @@ pub fn wrapCall(s: *const Patcher, callAddress: usize, comptime wrapper: type) !
         return error.NotACall;
     }
 
-    const base = callAddress + 5;
-    const location = base + std.mem.readInt(u32, ptr[1..5], .little);
+    const base: isize = @intCast(callAddress + 5);
+    const displacement = std.mem.readInt(i32, ptr[1..5], .little);
+    const location: usize = @intCast(base + displacement);
 
     log.debug("Patching CALL at 0x{x}, original function was 0x{x}", .{ callAddress, location });
 
     wrapper.original = @ptrFromInt(location);
 
-    const ourFn = @intFromPtr(&wrapper.replacement);
+    const our_fn = @intFromPtr(&wrapper.replacement);
+    const our_displacement: i32 = @intCast(@as(isize, @intCast(our_fn)) - base);
 
-    log.debug("Patching CALL at 0x{x} to use our function at 0x{x}", .{ callAddress, ourFn });
+    log.debug("Patching CALL at 0x{x} to use our function at 0x{x}", .{ callAddress, our_fn });
 
-    try s.write(callAddress + 1, ourFn - base);
+    try s.write(callAddress + 1, our_displacement);
 }
 
 inline fn toBytes(arg: anytype) switch (@TypeOf(arg)) {
     usize => *const [@sizeOf(usize)]u8,
+    i32 => *const [@sizeOf(i32)]u8,
     else => []const u8,
 } {
     return switch (@TypeOf(arg)) {
         usize => std.mem.asBytes(&std.mem.nativeToLittle(usize, arg)),
+        i32 => std.mem.asBytes(&std.mem.nativeToLittle(i32, arg)),
         else => arg,
     };
 }

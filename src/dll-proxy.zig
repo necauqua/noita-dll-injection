@@ -1,15 +1,9 @@
-const win = @cImport({
-    @cInclude("windows.h");
-});
-
-// cImport produces a variadic .x86_stdcall function pointer for FARPROC, which doesn't seem to work
-const FARPROC = *opaque {};
-
-extern "kernel32" fn GetProcAddress(hModule: win.HMODULE, lpProcName: win.LPCSTR) callconv(.{ .x86_stdcall = .{} }) ?FARPROC;
-
 // since we have the nice comptime macro, trampoline literally every single winmm.dll function
 // so it will work forever no matter what ^_^
-const function_names = [_][]const u8{
+const std = @import("std");
+const win = std.os.windows;
+
+const function_names = [_][:0]const u8{
     "CloseDriver",                  "DefDriverProc",        "DriverCallback",          "DrvGetModuleHandle",
     "GetDriverModuleHandle",        "NotifyCallbackData",   "OpenDriver",              "PlaySound",
     "PlaySoundA",                   "PlaySoundW",           "SendDriverMessage",       "WOW32DriverCallback",
@@ -60,7 +54,7 @@ const function_names = [_][]const u8{
     "waveOutUnprepareHeader",       "waveOutWrite",         "wid32Message",            "wod32Message",
 };
 
-var function_pointers: [function_names.len]?FARPROC = @splat(null);
+var function_pointers: [function_names.len]?win.FARPROC = @splat(null);
 
 // export all names as jmp trampolines to the corresponding pointer from function_pointers
 comptime {
@@ -80,30 +74,35 @@ comptime {
     }
 }
 
-var original_dll: ?win.HMODULE = null;
+var original: ?std.DynLib = null;
 
 pub fn init() !void {
-    var systemPath: [win.MAX_PATH]u8 = undefined;
-    const pathLen = win.GetSystemDirectoryA(&systemPath, systemPath.len);
+    var wbuf: [win.MAX_PATH:0]u16 = undefined;
+    const wlen = win.kernel32.GetSystemDirectoryW(&wbuf, wbuf.len);
+    if (wlen == 0) {
+        return error.WinapiError;
+    }
+
+    var buf: [win.MAX_PATH]u8 = undefined;
+    const path_len = try std.unicode.utf16LeToUtf8(&buf, wbuf[0..wlen]);
 
     const suffix = "\\winmm.dll";
-    @memcpy(systemPath[pathLen..][0..suffix.len], suffix);
-    systemPath[pathLen + suffix.len] = 0;
+    @memcpy(buf[path_len..][0..suffix.len], suffix);
 
-    const dll = win.LoadLibraryA(&systemPath) orelse {
-        return error.WinmmLoadFailed;
-    };
-    original_dll = dll;
+    const full_path = buf[0 .. path_len + suffix.len];
+
+    var lib = try std.DynLib.open(full_path);
+    original = lib;
 
     inline for (function_names, 0..) |name, i| {
-        function_pointers[i] = GetProcAddress(dll, name.ptr);
+        function_pointers[i] = lib.lookup(win.FARPROC, name);
     }
 }
 
 pub fn deinit() void {
-    if (original_dll) |dll| {
-        _ = win.FreeLibrary(dll);
-        original_dll = null;
-    }
     function_pointers = @splat(null);
+    if (original) |*lib| {
+        lib.close();
+        original = null;
+    }
 }

@@ -1,46 +1,14 @@
 const std = @import("std");
 
-const win = @cImport({
-    @cInclude("windows.h");
-});
+const operator_new = @extern(
+    *const fn (size: usize) callconv(.c) ?*anyopaque,
+    .{ .name = "??2@YAPAXI@Z", .library_name = "msvcr120" },
+);
 
-const FARPROC = *opaque {};
-extern "kernel32" fn GetProcAddress(hModule: win.HMODULE, lpProcName: win.LPCSTR) callconv(.{ .x86_stdcall = .{} }) ?FARPROC;
-
-var operator_new_ptr: ?*fn (size: usize) callconv(.C) ?*anyopaque = null;
-var operator_delete_ptr: ?*fn (ptr: *anyopaque) callconv(.C) void = null;
-
-var dll: ?win.HMODULE = null;
-
-pub fn init() !void {
-    const handle = win.LoadLibraryA("msvcr120.dll") orelse return error.MsvcrLoadFailed;
-    operator_new_ptr = @ptrCast(GetProcAddress(handle, "??2@YAPAXI@Z"));
-    operator_delete_ptr = @ptrCast(GetProcAddress(handle, "??3@YAXPAX@Z"));
-    dll = handle;
-}
-
-pub fn deinit() void {
-    if (dll) |handle| {
-        _ = win.FreeLibrary(handle);
-        dll = null;
-    }
-    operator_new_ptr = null;
-    operator_delete_ptr = null;
-}
-
-fn operator_new(size: usize) ?*anyopaque {
-    if (operator_new_ptr) |f| {
-        return f(size);
-    } else {
-        return null;
-    }
-}
-
-fn operator_delete(ptr: *anyopaque) void {
-    if (operator_delete_ptr) |f| {
-        f(ptr);
-    }
-}
+const operator_delete = @extern(
+    *const fn (ptr: *anyopaque) callconv(.c) void,
+    .{ .name = "??3@YAXPAX@Z", .library_name = "msvcr120" },
+);
 
 pub const StdString = extern struct {
     repr: extern union {
@@ -73,49 +41,43 @@ pub const StdString = extern struct {
         s.* = StdString.init();
     }
 
-    pub fn as_slice(s: *const StdString) []const u8 {
+    pub fn asSlice(s: *const StdString) []const u8 {
         return if (s.cap <= 0xf) s.repr.small[0..s.len] else s.repr.heap[0..s.len];
     }
 
     pub fn assign(s: *StdString, str: []const u8) void {
-        if (s.cap > 0xf) {
-            if (s.repr.heap) |ptr| {
-                operator_delete(ptr);
-            }
-        }
         if (str.len <= 0xf) {
-            @memcpy(s.repr.small[0..str.len], str);
-            s.repr.small[str.len] = 0;
+            var small = std.mem.zeroes([16]u8);
+            @memcpy(small[0..str.len], str);
+            small[str.len] = 0;
+
+            s.deinit();
+            s.repr.small = small;
             s.len = str.len;
             s.cap = 0xf;
-        } else {
-            const heap_size = str.len + 1;
-            const heap: [*]u8 = @ptrCast(operator_new(heap_size) orelse @panic("oom"));
-
-            @memcpy(heap[0..str.len], str);
-            heap[str.len] = 0;
-
-            s.repr.heap = heap;
-            s.len = str.len;
-            s.cap = str.len;
+            return;
         }
+
+        const heap_size = str.len + 1;
+        const heap: [*]u8 = @ptrCast(operator_new(heap_size) orelse @panic("oom"));
+
+        @memcpy(heap[0..str.len], str);
+        heap[str.len] = 0;
+
+        s.deinit();
+        s.repr.heap = heap;
+        s.len = str.len;
+        s.cap = str.len;
     }
 
-    pub fn clone(s: *const StdString) !StdString {
-        return fromSlice(s.as_slice());
+    pub fn clone(s: *const StdString) StdString {
+        return fromSlice(s.asSlice());
     }
 
     pub fn format(
-        s: StdString,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        s: *const StdString,
         writer: anytype,
     ) !void {
-        _ = options;
-        if (std.mem.eql(fmt, fmt, "s")) {
-            try writer.print("{s}", .{s.as_slice()});
-        } else {
-            try writer.print("\"{s}\"", .{s.as_slice()});
-        }
+        try writer.writeAll(s.asSlice());
     }
 };

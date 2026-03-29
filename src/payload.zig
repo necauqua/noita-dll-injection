@@ -4,10 +4,6 @@ const std = @import("std");
 const Patcher = @import("patcher.zig");
 const StdString = @import("cpp.zig").StdString;
 
-const win = @cImport({
-    @cInclude("windows.h");
-});
-
 const log = std.log.scoped(.payload);
 
 pub fn run() !void {
@@ -44,7 +40,7 @@ fn vectorAddPatch(patcher: *const Patcher) !void {
 
         pub fn replacement(vec: *opaque {}, value: *ReadMod) callconv(.{ .x86_thiscall = .{} }) void {
             if (value.invalid) {
-                log.debug("invalid=true mod found, patching: {s} (workshop id: {})", .{ value.name.as_slice(), value.workshop_id });
+                log.debug("invalid=true mod found, patching: {f} (workshop id: {})", .{ value.name, value.workshop_id });
                 value.invalid = false;
                 value.request_no_api_restriction = true;
             }
@@ -143,8 +139,7 @@ fn addUnsafeModBanners(patcher: *const Patcher) !void {
             const mod = asm volatile ("movl %%esi, %[result]"
                 : [result] "=r" (-> *ReadMod),
                 :
-                : "memory"
-            );
+                : .{ .memory = true });
             const o = original orelse unreachable;
 
             const NEXT_SAME_LINE = 0x4000;
@@ -152,7 +147,7 @@ fn addUnsafeModBanners(patcher: *const Patcher) !void {
 
             var extra_flag: u32 = 0;
             if (mod.request_no_api_restriction) {
-                const slice = text.as_slice();
+                const slice = text.asSlice();
                 if (std.mem.startsWith(u8, slice, "[ ] ") or std.mem.startsWith(u8, slice, "[x] ")) {
                     var buf: [200]u8 = undefined;
                     text.assign(std.fmt.bufPrint(&buf, "{s}           {s}", .{ slice[0..3], slice[3..] }) catch "<error>");
@@ -183,7 +178,7 @@ fn addUnsafeModBanners(patcher: *const Patcher) !void {
                     offset = 0.0;
                 }
 
-                var response = std.mem.zeroes(Response);
+                var response: Response = undefined;
                 _ = o(self, &response, id1 + 1, id2, &prefix, flags, 0, layer, scale, font, &c, x + offset, y);
             }
 
