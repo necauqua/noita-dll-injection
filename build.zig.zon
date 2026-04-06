@@ -1,0 +1,6 @@
+.{
+    .name = .noita_hook,
+    .version = "0.1.0",
+    .paths = .{ "build.zig", "build.zig.zon", "LICENSE", "src", "lib/msvcr120.lib" },
+    .fingerprint = 0x840a45c4652c744f,
+}

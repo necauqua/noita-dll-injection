@@ -1,48 +1,42 @@
-# noita-dll-injection
+# noita-hook
 
-This is a simple instance of Noita engine modding through DLL injection.
+This is a Zig library helper for writing ASI mods for Noita.
+ASI files are just DLLs that get loaded into the game by an ASI loader,
+something like [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader).
 
-This mod patches the game to disable the check that disallows enabling unsafe
-mods added through Steam Workshop.
+To use it, grab the 32-bit `winmm.dll` file from its releases page, and put it
+next to the `noita.exe` file in its folder.
 
-It's written in a way that should be unlikely to break if the game happens to
-receive an update. Also it obviously only works with the Steam version of the
-game.
-
-To use it, download the `winmm.dll` file from the
-[releases](https://github.com/necauqua/noita-dll-proxy/releases) page and place
-it in the game directory, where the `noita.exe` file is located.
-
-To easily find the directory, in Steam right-click on the game in your library,
-go to "Manage" -> "Browse local files". This will open the correct folder, just
-drag the DLL over there.
+If using Steam, the easy way to find the game directory that contains
+`noita.exe` is by right-clicking on the game in your library, then going to
+"Manage" -> "Browse local files".
 
 > [!NOTE]
 > On Linux, due to the way Proton changes how DLLs are loaded, for this to work
 > you need to set `WINEDLLOVERRIDES=winmm=n,b %command%` in the game launch
 > options in Steam in addition to adding the DLL in the game folder.
 
-## How it works
-DLL injection is a simple technique where you "trick" an executable into
-loading a custom DLL with no extra configuration or file editing.
+This repository also contains three tiny ASI mods I wrote, in the `examples`
+folder (you can also download them from the releases page).
+To install them, put an .asi file in the `plugins` folder next to `noita.exe`
+after installing ultimate asi loader (create the folder if it doesn't exist).
 
-Basically, when an executable loads a DLL, it searches for it in several places
-with different precedence. What is important for our purpose is that it looks
-for them in the working directory before the system directories.
-
-The idea is then to make a custom DLL named as some system DLL that the
-executable loads and place it in the working directory of the executable.
-
-It has to export the functions that the executable expects from the system
-library, and call the corresponding functions from the original system DLL so
-that the correct behaviour is preserved - this is called "DLL proxying".
-
-And since this is our custom DLL - that we made! - in can run any code in the
-address space of the executable when its `DllMain` entry point is called.
-
-We use the `winmm.dll` system library (the Windows Multimedia API) as a target
-for DLL proxying, because Noita happends to load it, it's a common target for
-this.
+Those mods are:
+- `allow-unsafe-workshop-mods.asi`:
+  What it says on the tin - if someone _somehow_
+  ([wink-wink](https://steamcommunity.com/sharedfiles/filedetails/?id=3504301317))
+  managed to trick noita_dev.exe into uploading an unsafe mod to Steam Workshop,
+  this mod disables the check that prevents unsafe mods installed from Steam
+  Workshop from working.
+- `fix-mod-restart.asi`:
+  If you use the `-always_store_userdata_in_workdir` noita.exe CLI argument for
+  modding or to otherwise have separate saves (for example my other project
+  [noita-ts](https://github.com/necauqua/noita-ts) uses this), that argument is
+  not preserved if you click the "Restart with mods enabled" button, which this
+  patch fixes.
+- `unsafe-mod-banners.asi`:
+  Honestly this should be a vanilla feature - adds a red `[unsafe]` banner to
+  unsafe mods in the modlist, it looks really cool.
 
 ## License
 As with everything I do, this is licensed under the MIT, meaning you have to

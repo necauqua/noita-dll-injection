@@ -1,16 +1,16 @@
 const std = @import("std");
 
-const operator_new = @extern(
+const operatorNew = @extern(
     *const fn (size: usize) callconv(.c) ?*anyopaque,
     .{ .name = "??2@YAPAXI@Z", .library_name = "msvcr120" },
 );
 
-const operator_delete = @extern(
+const operatorDelete = @extern(
     *const fn (ptr: *anyopaque) callconv(.c) void,
     .{ .name = "??3@YAXPAX@Z", .library_name = "msvcr120" },
 );
 
-pub const StdString = extern struct {
+pub const NoitaString = extern struct {
     repr: extern union {
         small: [16]u8,
         heap: [*c]u8,
@@ -18,7 +18,7 @@ pub const StdString = extern struct {
     len: u32,
     cap: u32,
 
-    pub fn init() StdString {
+    pub fn init() NoitaString {
         return .{
             .repr = .{ .small = std.mem.zeroes([16]u8) },
             .len = 0,
@@ -26,26 +26,26 @@ pub const StdString = extern struct {
         };
     }
 
-    pub fn fromSlice(str: []const u8) StdString {
-        var s = StdString.init();
+    pub fn fromSlice(str: []const u8) NoitaString {
+        var s = NoitaString.init();
         s.assign(str);
         return s;
     }
 
-    pub fn deinit(s: *StdString) void {
+    pub fn deinit(s: *NoitaString) void {
         if (s.cap > 0xf) {
             if (s.repr.heap) |ptr| {
-                operator_delete(ptr);
+                operatorDelete(ptr);
             }
         }
-        s.* = StdString.init();
+        s.* = NoitaString.init();
     }
 
-    pub fn asSlice(s: *const StdString) []const u8 {
+    pub fn asSlice(s: *const NoitaString) []const u8 {
         return if (s.cap <= 0xf) s.repr.small[0..s.len] else s.repr.heap[0..s.len];
     }
 
-    pub fn assign(s: *StdString, str: []const u8) void {
+    pub fn assign(s: *NoitaString, str: []const u8) void {
         if (str.len <= 0xf) {
             var small = std.mem.zeroes([16]u8);
             @memcpy(small[0..str.len], str);
@@ -59,7 +59,7 @@ pub const StdString = extern struct {
         }
 
         const heap_size = str.len + 1;
-        const heap: [*]u8 = @ptrCast(operator_new(heap_size) orelse @panic("oom"));
+        const heap: [*]u8 = @ptrCast(operatorNew(heap_size) orelse @panic("oom"));
 
         @memcpy(heap[0..str.len], str);
         heap[str.len] = 0;
@@ -70,12 +70,12 @@ pub const StdString = extern struct {
         s.cap = str.len;
     }
 
-    pub fn clone(s: *const StdString) StdString {
+    pub fn clone(s: *const NoitaString) NoitaString {
         return fromSlice(s.asSlice());
     }
 
     pub fn format(
-        s: *const StdString,
+        s: *const NoitaString,
         writer: anytype,
     ) !void {
         try writer.writeAll(s.asSlice());
