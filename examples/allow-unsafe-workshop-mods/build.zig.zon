@@ -1,12 +1,7 @@
 .{
     .name = .allow_unsafe_workshop_mods,
     .version = "0.15.2",
-    .dependencies = .{
-        .noita_hook = .{
-            .url = "../..",
-            .hash = "noita_hook-0.1.0-T3QsZTJIAAAbOOg0thC92WRV-V0ySyBeRBmkbW9jMJdv",
-        },
-    },
+    .dependencies = .{ .noita_hook = .{ .path = "../.." } },
     .paths = .{""},
     .fingerprint = 0x408591d3ff3109ba,
 }
