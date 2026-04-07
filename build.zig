@@ -50,6 +50,7 @@ pub fn addNoitaPlugin(b: *std.Build, opts: NoitaPluginOptions) *std.Build.Step.C
             .optimize = optimize,
         }),
     });
+    lib.root_module.addImport("noita-hook", noita_hook.module("lib"));
     lib.root_module.addImport("plugin", plugin);
 
     const build_options = b.addOptions();
@@ -79,19 +80,29 @@ pub fn build(b: *std.Build) void {
     // we ignore the target options lol, its always a win32 dll
     _ = b.standardTargetOptions(.{});
 
-    _ = b.addModule("lib", .{
+    const lib = b.addModule("lib", .{
         .root_source_file = b.path("src/root.zig"),
         .target = win32(b),
         .optimize = b.standardOptimizeOption(.{}),
     });
 
-    const lib = b.addLibrary(.{
+    const checkLib = b.addLibrary(.{
         .name = "noita-hook",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/root.zig"),
+            .root_source_file = b.path("src/start.zig"),
             .target = win32(b),
             .optimize = .Debug,
         }),
     });
-    b.step("check", "Check if it compiles").dependOn(&lib.step);
+    const config = b.addOptions();
+    config.addOption([]const u8, "plugin_name", "zls-dummy");
+    checkLib.root_module.addImport("config", config.createModule());
+    checkLib.root_module.addImport("noita-hook", lib);
+    checkLib.root_module.addImport("plugin", b.createModule(.{
+        .root_source_file = b.path("src/dummy.zig"),
+        .target = win32(b),
+        .optimize = .Debug,
+    }));
+
+    b.step("check", "Check if it compiles").dependOn(&checkLib.step);
 }

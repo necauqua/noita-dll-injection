@@ -36,7 +36,7 @@ pub fn init() !void {
 
         const UiResponse = extern struct {
             clicked: bool,
-            _unknown: bool,
+            double_clicked: bool,
             right_clicked: bool,
             hovered: bool,
             _ignored: [19]u32,

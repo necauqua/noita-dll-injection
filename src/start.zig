@@ -2,9 +2,12 @@ const std = @import("std");
 const win = std.os.windows;
 
 const config = @import("config");
+const lib = @import("noita-hook");
 const plugin = @import("plugin");
 
-var startup_time: i128 = 0;
+pub export fn noita_asi_mod_name() [*:0]const u8 {
+    return config.plugin_name ++ "\x00";
+}
 
 pub fn DllMain(hinstDLL: win.HINSTANCE, fdwReason: win.DWORD, lpReserved: win.LPVOID) callconv(.winapi) win.BOOL {
     _ = hinstDLL;
@@ -15,7 +18,7 @@ pub fn DllMain(hinstDLL: win.HINSTANCE, fdwReason: win.DWORD, lpReserved: win.LP
     }
     init_stdout();
 
-    startup_time = std.time.nanoTimestamp();
+    lib.core.sharedInit();
 
     // const initInfo = @typeInfo(@TypeOf(plugin.init));
     // if (initInfo.@"fn".params.len != 0) {
@@ -56,39 +59,7 @@ fn init_stdout() void {
     _ = SetStdHandle(win.STD_ERROR_HANDLE, stderr_handle);
 }
 
-fn log(comptime level: std.log.Level, comptime scope: @Type(.enum_literal), comptime format: []const u8, args: anytype) void {
-    const scope_prefix = if (scope == .default) "" else "\x1b[2m" ++ @tagName(scope) ++ "\x1b[0m: ";
-    const color = switch (level) {
-        .err => "\x1b[31m",
-        .warn => "\x1b[33m",
-        .info => "\x1b[32m",
-        .debug => "\x1b[36m",
-    };
-    const level_pad = switch (level) { // meh
-        .err => "  ",
-        .warn => "",
-        .info => "   ",
-        .debug => "  ",
-    };
-
-    const elapsed_ns: u64 = @intCast(std.time.nanoTimestamp() -| startup_time);
-    const secs = elapsed_ns / std.time.ns_per_s;
-    const frac = elapsed_ns % std.time.ns_per_s;
-
-    const stderr = std.debug.lockStderrWriter(&[_]u8{});
-    defer std.debug.unlockStderrWriter();
-
-    stderr.print(
-        "\x1b[2m{d}.{d:0>6}\x1b[0m " ++
-            color ++ level_pad ++ level.asText() ++ "\x1b[0m " ++
-            "\x1b[1m" ++ config.plugin_name ++ "\x1b[0m: " ++
-            scope_prefix ++
-            format ++ "\n",
-        .{ secs, frac / std.time.ns_per_us } ++ args,
-    ) catch return;
-}
-
-pub const std_options = std.Options{ .logFn = log };
+pub const std_options = std.Options{ .logFn = lib.log.mkLog(config.plugin_name) };
 
 // add a little trace about which plugin exactly panicked
 fn panicFn(msg: []const u8, first_trace_addr: ?usize) noreturn {
@@ -97,3 +68,7 @@ fn panicFn(msg: []const u8, first_trace_addr: ?usize) noreturn {
 }
 
 pub const panic = std.debug.FullPanic(panicFn);
+
+comptime {
+    _ = lib;
+}
