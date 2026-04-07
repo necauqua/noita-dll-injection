@@ -8,7 +8,7 @@ pub fn init() !void {
     const push = try scanner.findStringPush("$menu_mods_moveup", .{});
 
     // third occurence of the PUSH EAX, CALL instructions after "$menu_mods_moveup"
-    const drawButtonCall = (try scanner.text.scan(.{ 0x50, 0xE8 }, .{ .at = push, .skip = 2 })) + 1;
+    const drawButtonCall = (try scanner.text.scan(&.{ 0x50, 0xE8 }, .{ .at = push, .skip = 2 })) + 1;
 
     std.log.debug("Found draw button call at {f}", .{nh.fmt.ptr(drawButtonCall)});
 

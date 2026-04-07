@@ -36,7 +36,7 @@ pub fn init() !void {
 
     // immediately before the push of the string there's a PUSH 18,
     // which is the length, which we patch as well
-    try nh.patch.write(initialArgLocation - 1, .{newArg.len});
+    try nh.patch.write(initialArgLocation - 1, &.{newArg.len});
 
     // and replace the push arg with our adjustment
     try nh.patch.write(initialArgLocation + 1, @intFromPtr(newArg));

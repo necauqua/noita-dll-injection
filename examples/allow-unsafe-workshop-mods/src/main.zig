@@ -25,7 +25,7 @@ fn vectorAddPatch(scanner: *const nh.Scanner) !void {
     const push = try scanner.findStringPush("settings.lua", .{ .skip = 1 });
 
     // 0x50 is PUSH EAX, 0xE8 is CALL <displacement>
-    const vectorAddCall = (try scanner.text.scan(.{ 0x50, 0xE8 }, .{ .at = push, .skip = 1 })) + 1;
+    const vectorAddCall = (try scanner.text.scan(&.{ 0x50, 0xE8 }, .{ .at = push, .skip = 1 })) + 1;
 
     std.log.debug("Found a second __thiscall call at {f}", .{nh.fmt.ptr(vectorAddCall)});
 
@@ -51,13 +51,13 @@ fn modConfigCheckPatch(scanner: *const nh.Scanner) !void {
     const found = while (true) {
         // don't like this, but this CMP BYTE PTR [EAX + 0x93], 0x0 seems unique,
         // the only place where we put pointer to big mod struct into EAX and check for is_translation
-        const isTranslationCmp = try scanner.text.scan(.{ 0x80, 0xb8, 0x93, 0x00, 0x00, 0x00, 0x00 }, .{ .at = offset });
+        const isTranslationCmp = try scanner.text.scan(&.{ 0x80, 0xb8, 0x93, 0x00, 0x00, 0x00, 0x00 }, .{ .at = offset });
         std.log.debug("Found is_translation CMP at {f}", .{nh.fmt.ptr(isTranslationCmp)});
 
         // chack that the prev instruction (skipping a jz) is what we look for
         const request_no_api_restriction_cmp = isTranslationCmp - 2 - 7;
         const ptr: [*]u8 = @ptrFromInt(request_no_api_restriction_cmp);
-        if (std.mem.eql(u8, ptr[0..7], &[_]u8{ 0x80, 0xb8, 0x90, 0x00, 0x00, 0x00, 0x00 })) {
+        if (std.mem.eql(u8, ptr[0..7], &.{ 0x80, 0xb8, 0x90, 0x00, 0x00, 0x00, 0x00 })) {
             break request_no_api_restriction_cmp;
         }
 
@@ -72,7 +72,7 @@ fn modConfigCheckPatch(scanner: *const nh.Scanner) !void {
 
     // replace `CMP thing, 0` with `TEST thing, 0` (keeping the displacement)
     // to make the comparison always succeed
-    try nh.patch.write(found, .{ 0xF6, 0x80 });
+    try nh.patch.write(found, &.{ 0xF6, 0x80 });
 }
 
 fn fixUnsafePopupPatch(scanner: *const nh.Scanner) !void {
@@ -85,7 +85,7 @@ fn fixUnsafePopupPatch(scanner: *const nh.Scanner) !void {
 
     std.log.debug("Found unsafe dialog function usage at {f}", .{nh.fmt.ptr(usage)});
 
-    const jump = try scanner.text.scan(.{ 0x0F, 0x85 }, .{ .at = usage, .dir = .back });
+    const jump = try scanner.text.scan(&.{ 0x0F, 0x85 }, .{ .at = usage, .dir = .back });
 
-    try nh.patch.write(jump, .{0x90} ** 6);
+    try nh.patch.write(jump, &(.{0x90} ** 6));
 }

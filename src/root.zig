@@ -15,17 +15,6 @@ pub inline fn byteArgument(arg: anytype) switch (@TypeOf(arg)) {
     return switch (T) {
         usize => std.mem.asBytes(&std.mem.nativeToLittle(usize, arg)),
         i32 => std.mem.asBytes(&std.mem.nativeToLittle(i32, arg)),
-        else => {
-            const info = @typeInfo(T);
-            if (info == .@"struct" and info.@"struct".is_tuple) {
-                const S = info.@"struct";
-                var bytes: [S.fields.len]u8 = undefined;
-                inline for (S.fields, 0..) |f, i| {
-                    bytes[i] = @field(arg, f.name);
-                }
-                return &bytes;
-            }
-            return arg;
-        },
+        else => arg,
     };
 }
