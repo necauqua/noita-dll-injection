@@ -1,3 +1,18 @@
+# readme
+If you're coming from one of my mods on steam workshop, go to releases,
+and put the `winmm.dll` file next to your `noita.exe` in the game folder
+(you can right click on the game in Steam and go Manage -> Browse local files
+to find the correct folder).
+
+Thats it.
+
+---
+
+This whole thing is being reworked into a Zig library to make DLL patches (also
+called asi scripts or asi mods), and the following is the new readme for it,
+later you'll be able to use an asi mod for what the old `winmm.dll` from
+releases did.
+
 # noita-hook
 
 This is a Zig library helper for writing ASI mods for Noita.
