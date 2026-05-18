@@ -68,7 +68,3 @@ fn panicFn(msg: []const u8, first_trace_addr: ?usize) noreturn {
 }
 
 pub const panic = std.debug.FullPanic(panicFn);
-
-comptime {
-    _ = lib;
-}

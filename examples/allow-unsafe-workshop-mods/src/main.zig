@@ -15,7 +15,7 @@ const ReadMod = extern struct {
     _skip1: [120]u8,
     request_no_api_restriction: bool,
     _skip2: [151]u8,
-    workshop_id: u64,
+    workshop_id: u64 align(4),
     _compatibility: [2]u32,
     invalid: bool,
     _padding: [3]u8,
@@ -38,7 +38,7 @@ fn vectorAddPatch(scanner: *const nh.Scanner) !void {
                 value.invalid = false;
                 value.request_no_api_restriction = true;
             }
-            const o = original orelse unreachable;
+            const o = original.?;
             o(vec, value);
         }
     });

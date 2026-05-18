@@ -25,15 +25,27 @@ export fn __noita_asi_mod_core() ?*Shared {
 }
 
 const GuiState = struct {
-    ctx: *lib.gui.ImGuiContext,
+    // ctx: *lib.gui.ImGuiContext,
     title: NoitaString,
     mods: std.ArrayList(NoitaString),
 };
 
 var guiState: ?GuiState = null;
 
-fn buildModList() std.ArrayList(NoitaString) {
-    var modList = std.ArrayList(NoitaString).initCapacity(lib.alloc, 4) catch @panic("OOM");
+fn getOrInitGuiState() *GuiState {
+    if (guiState) |*state| {
+        return state;
+    }
+    guiState = .{
+        // .ctx = lib.gui.ImGuiContext.init("noita-hook"),
+        .title = NoitaString.from("DLL patches installed:") catch @panic("OOM"),
+        .mods = buildModList() catch @panic("OOM"),
+    };
+    return &guiState.?;
+}
+
+fn buildModList() error{OutOfMemory}!std.ArrayList(NoitaString) {
+    var modList = try std.ArrayList(NoitaString).initCapacity(lib.alloc, 4);
 
     const list = &win.peb().Ldr.InMemoryOrderModuleList;
     var current = list.Flink;
@@ -50,7 +62,7 @@ fn buildModList() std.ArrayList(NoitaString) {
 
         if (win.kernel32.GetProcAddress(module, "noita_asi_mod_name")) |namePtr| {
             const nameFn: *const @TypeOf(currentModName) = @ptrCast(namePtr);
-            modList.append(lib.alloc, NoitaString.fromSlice(std.mem.span(nameFn()))) catch @panic("OOM");
+            try modList.append(lib.alloc, try NoitaString.from(std.mem.span(nameFn())));
         }
     }
 
@@ -82,30 +94,27 @@ fn init() !void {
             self: *lib.NoitaString,
             ptr: [*]u8,
         ) callconv(.{ .x86_thiscall = .{} }) *lib.NoitaString {
-            const orig = original orelse unreachable;
+            const orig = original.?;
             const res = orig(self, ptr);
 
-            const state = if (guiState) |*ref| ref else b: {
-                const newState = GuiState{
-                    .ctx = lib.gui.ImGuiContext.init("noita-hook"),
-                    .title = NoitaString.fromSlice("DLL patches installed:"),
-                    .mods = buildModList(),
-                };
-                guiState = newState;
-                break :b &newState;
-            };
+            const state = getOrInitGuiState();
 
-            state.ctx.startFrame(.{});
+            // Cannot cache the ImGuiContext in gui state because on soft restarts Noita seemingly
+            // clears out the auto sets, which ImGuiContext is one of, so we'd get a dangling pointer then
+            const ctx = lib.gui.ImGuiContext.init("noita-hook");
+            defer ctx.deinit();
+
+            ctx.startFrame(.{});
 
             var resp: lib.gui.UiResponse = undefined;
-            var offset: f32 = 0;
+            var id: u32 = 1;
 
-            const x = 345;
-            const y = 135;
+            const x = 355;
+            var y: f32 = 135;
 
-            _ = state.ctx.text(
+            _ = ctx.text(
                 &resp,
-                1,
+                .{ .id = id },
                 &state.title,
                 .{},
                 0,
@@ -117,20 +126,34 @@ fn init() !void {
             );
 
             for (state.mods.items) |mod| {
-                offset += 10;
-                _ = state.ctx.text(
+                id += 1;
+                y += 10;
+                _ = ctx.text(
                     &resp,
-                    1,
+                    .{ .id = id },
                     &mod,
-                    .{ .draw_semi_transparent = true },
+                    .{ .bits = .{ .draw_semi_transparent = true } },
                     0,
                     1.0,
                     &lib.gui.Font.default,
                     &lib.gui.WidgetColor.white,
                     x + 5,
-                    y + offset,
+                    y,
                 );
             }
+
+            // var frameData = lib.gui.FrameData{
+            //     .anchor_x = 10.0,
+            //     .anchor_y = 10.0,
+            //     .anchor_width = 100.0,
+            //     .anchor_height = 10.0,
+            //     .needs_render = true,
+            //     .once_per_frame = false,
+            // };
+            // var text = NoitaString.from("test dll mod description") catch @panic("OOM");
+            // defer text.deinit();
+
+            // state.ctx.tooltip(&frameData, &resp, &text, &NoitaString.empty);
 
             return res;
         }

@@ -2,13 +2,12 @@ const std = @import("std");
 
 pub const alloc = @import("alloc.zig").alloc;
 pub const core = @import("core.zig");
-const cpp = @import("cpp.zig");
-pub const NoitaString = cpp.NoitaString;
 pub const fmt = @import("fmt.zig");
 pub const gui = @import("gui.zig");
 pub const log = @import("log.zig");
 pub const patch = @import("patch.zig");
 pub const Scanner = @import("Scanner.zig");
+pub const NoitaString = @import("structures/NoitaString.zig").NoitaString;
 
 pub inline fn byteArgument(arg: anytype) switch (@TypeOf(arg)) {
     usize => *const [@sizeOf(usize)]u8,

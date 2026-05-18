@@ -14,46 +14,54 @@ pub const WidgetColor = extern struct {
     pub const white = WidgetColor{ .r = 1.0, .g = 1.0, .b = 1.0 };
 };
 
-pub const UiOptions = packed struct(u64) {
-    _unused_0: u1 = 0,
-    is_draggable: bool = false,
-    non_interactive: bool = false,
-    always_clickable: bool = false,
-    click_cancels_double_click: bool = false,
-    ignore_container: bool = false,
-    no_position_tween: bool = false,
-    force_focusable: bool = false,
-    handle_double_click_as_click: bool = false,
-    gamepad_default_widget: bool = false,
-    layout_insert_outside_left: bool = false,
-    layout_insert_outside_right: bool = false,
-    layout_insert_outside_above: bool = false,
-    layout_force_calculate: bool = false,
-    layout_next_same_line: bool = false,
-    layout_no_layouting: bool = false,
-    align_horizontal_center: bool = false,
-    align_left: bool = false,
-    focus_snap_to_right_edge: bool = false,
-    no_pixel_snap_y: bool = false,
-    draw_always_visible: bool = false,
-    draw_no_hover_animation: bool = false,
-    draw_wobble: bool = false,
-    draw_fade_in: bool = false,
-    draw_scale_in: bool = false,
-    draw_wave_animate_opacity: bool = false,
-    draw_semi_transparent: bool = false,
-    draw_active_widget_cursor_on_both_sides: bool = false,
-    draw_active_widget_cursor_off: bool = false,
-    text_rich_rendering: bool = false, // 29
-    _unused_30_46: u17 = 0,
-    no_sound: bool = false,
-    hack_force_click: bool = false,
-    hack_allow_duplicate_ids: bool = false,
-    scroll_container_smooth: bool = false,
-    is_extra_draggable: bool = false,
-    _unused_52_61: u10 = 0,
-    snap_to_center: bool = false,
-    disabled: bool = false,
+pub const UiId = extern struct {
+    id: u64 align(4) = 0,
+};
+
+pub const UiOptions = extern struct {
+    bits: Bits align(4) = .{},
+
+    const Bits = packed struct(u64) {
+        _unused_0: u1 = 0,
+        is_draggable: bool = false,
+        non_interactive: bool = false,
+        always_clickable: bool = false,
+        click_cancels_double_click: bool = false,
+        ignore_container: bool = false,
+        no_position_tween: bool = false,
+        force_focusable: bool = false,
+        handle_double_click_as_click: bool = false,
+        gamepad_default_widget: bool = false,
+        layout_insert_outside_left: bool = false,
+        layout_insert_outside_right: bool = false,
+        layout_insert_outside_above: bool = false,
+        layout_force_calculate: bool = false,
+        layout_next_same_line: bool = false,
+        layout_no_layouting: bool = false,
+        align_horizontal_center: bool = false,
+        align_left: bool = false,
+        focus_snap_to_right_edge: bool = false,
+        no_pixel_snap_y: bool = false,
+        draw_always_visible: bool = false,
+        draw_no_hover_animation: bool = false,
+        draw_wobble: bool = false,
+        draw_fade_in: bool = false,
+        draw_scale_in: bool = false,
+        draw_wave_animate_opacity: bool = false,
+        draw_semi_transparent: bool = false,
+        draw_active_widget_cursor_on_both_sides: bool = false,
+        draw_active_widget_cursor_off: bool = false,
+        text_rich_rendering: bool = false,
+        _unused_30_46: u17 = 0,
+        no_sound: bool = false,
+        hack_force_click: bool = false,
+        hack_allow_duplicate_ids: bool = false,
+        scroll_container_smooth: bool = false,
+        is_extra_draggable: bool = false,
+        _unused_52_61: u10 = 0,
+        snap_to_center: bool = false,
+        disabled: bool = false,
+    };
 };
 
 pub const UiResponse = extern struct {
@@ -85,31 +93,30 @@ pub const ImGuiContext = extern struct {
 
     _rest: [0x90 - 4]u8, // lmao
     // unknownBool: bool,
-    // _pad: [3]u8,
     // state: extern struct {
     //     options: UiOptions,
     //     nextOptions: UiOptions,
     //     nextColor: WidgetColor,
-    //     z: f32, // f32 or u32?
+    //     z: f32,
     //     nextZ: f32,
     //     nextZSet: bool,
-    //     _align: [3]u8,
-    //     last_response: UiResponse,
+    //     lastResponse: UiResponse,
     // },
     // impl: *opaque {},
     // _maybeAlign: u32,
 
+    var frameTexture: NoitaString = undefined;
     var functions: GuiFunctions = undefined;
-
-    pub fn deinit(self: *ImGuiContext) void {
-        self.vftable.destroy(self, true);
-    }
 
     pub fn init(name: []const u8) *ImGuiContext {
         const gui = lib.alloc.create(ImGuiContext) catch @panic("OOM");
-        var noitaName = NoitaString.fromSlice(name);
+        var noitaName = NoitaString.from(name) catch @panic("OOM");
         defer noitaName.deinit();
         return functions.init(gui, 90, &noitaName, true);
+    }
+
+    pub fn deinit(self: *ImGuiContext) void {
+        self.vftable.destroy(self, true);
     }
 
     pub fn startFrame(
@@ -126,7 +133,7 @@ pub const ImGuiContext = extern struct {
     pub fn text(
         self: *ImGuiContext,
         out: *UiResponse,
-        id: u64,
+        id: UiId,
         text_: *const NoitaString,
         flags: UiOptions,
         layer: u32,
@@ -137,6 +144,35 @@ pub const ImGuiContext = extern struct {
         y: f32,
     ) callconv(.{ .x86_thiscall = .{} }) *UiResponse {
         return functions.text(self, out, id, text_, flags, layer, scale, font, color, x, y);
+    }
+
+    pub fn tooltip(
+        self: *ImGuiContext,
+        frameData: *FrameData,
+        out: *UiResponse,
+        text_: *const NoitaString,
+        text_secondary: *const NoitaString,
+    ) void {
+        // this seems to be .x86_thiscall except compiler did some optimization bs
+        // and used edx or some shit (not __fastcall cuz we need to fix the stack)
+        asm volatile (
+            \\push %[texture_alt]
+            \\push %[texture]
+            \\push %[text_secondary]
+            \\push %[text_]
+            \\push %[frameData]
+            \\call *%[func]
+            \\add $20, %%esp
+            :
+            : [func] "{eax}" (functions.tooltip),
+              [out] "{ecx}" (out),
+              [self] "{edx}" (self),
+              [frameData] "m" (frameData),
+              [text_] "m" (text_),
+              [text_secondary] "m" (text_secondary),
+              [texture] "m" (&frameTexture),
+              [texture_alt] "m" (&frameTexture),
+            : .{ .ecx = true, .edx = true, .eax = true, .esp = true, .memory = true });
     }
 };
 
@@ -154,6 +190,31 @@ pub const Font = extern struct {
     };
 };
 
+pub const FrameData = extern struct {
+    needs_render: bool = false,
+    anchor_x: f32 = 0.0,
+    anchor_y: f32 = 0.0,
+    anchor_width: f32 = 0.0,
+    anchor_height: f32 = 0.0,
+    was_rendered: bool = false,
+    once_per_frame: bool = true,
+    id: UiId = .{},
+    _unknown: u32 = 0, // first byte is use_alt_texture: bool likely?
+    color: WidgetColor = .{},
+
+    pub fn setFromUiResponse(self: *FrameData, response: *const UiResponse) void {
+        self.needs_render = self.needs_render or response.hovered;
+        self.anchor_x = response.x;
+        self.anchor_y = response.y;
+        self.anchor_width = response.width;
+        self.anchor_height = response.height;
+    }
+};
+
+comptime {
+    std.debug.assert(@sizeOf(FrameData) == 0x38);
+}
+
 pub const GuiFunctions = struct {
     init: *const fn (
         self: *ImGuiContext,
@@ -164,20 +225,28 @@ pub const GuiFunctions = struct {
 
     startFrame: *const @TypeOf(ImGuiContext.startFrame),
     text: *const @TypeOf(ImGuiContext.text),
+    tooltip: *opaque {},
 
     pub fn scan(self: *GuiFunctions, scanner: *const Scanner) !void {
         const guiInit = try callAfterStringPush(scanner, "LuaImGui", @FieldType(GuiFunctions, "init"));
         const guiText = try callAfterStringPush(scanner, "$menu_mods_enablinginvalid", @FieldType(GuiFunctions, "text"));
 
-        const push = try scanner.findStringPush("Menu gui", .{});
-        const push3 = try scanner.text.scan(&.{ 0x6a, 0x03 }, .{ .at = push });
-        const call = try scanner.text.scan(&.{0xE8}, .{ .at = push3 });
-        std.log.debug("Found CALL at {f}", .{lib.fmt.ptr(call)});
+        const framePush = try scanner.findStringPush("Menu gui", .{});
+        const framePush3 = try scanner.text.scan(&.{ 0x6a, 0x03 }, .{ .at = framePush });
+        const frameCall = try scanner.text.scan(&.{0xE8}, .{ .at = framePush3 });
+        std.log.debug("Found CALL at {f}", .{lib.fmt.ptr(frameCall)});
+
+        const tooltipPush = try scanner.findStringPush("$menu_mods_incompatibilities_tooltip", .{});
+        // this will be way less shit once we integrate HDE or some other instruction length parser
+        // (there's a stray 0xE8 byte in between tooltip string and the call we're looking for ugh)
+        const tooltipCall = (try scanner.text.scan(&.{ 0x0, 0xE8 }, .{ .at = tooltipPush, .skip = 1 })) + 1;
+        std.log.debug("Found CALL at {f}", .{lib.fmt.ptr(tooltipCall)});
 
         self.* = .{
             .init = guiInit,
-            .startFrame = callToFn(call, @FieldType(GuiFunctions, "startFrame")),
+            .startFrame = callToFn(frameCall, @FieldType(GuiFunctions, "startFrame")),
             .text = guiText,
+            .tooltip = callToFn(tooltipCall, @FieldType(GuiFunctions, "tooltip")),
         };
     }
 };
@@ -188,6 +257,8 @@ fn callToFn(callLocation: usize, tpe: type) tpe {
 
     const base: isize = @intCast(callLocation + 5);
     const location: usize = @intCast(base + displacement);
+
+    std.log.debug("Found function at {f}", .{lib.fmt.ptr(location)});
 
     return @ptrFromInt(location);
 }
@@ -201,4 +272,5 @@ fn callAfterStringPush(scanner: *const Scanner, comptime str: []const u8, tpe: t
 
 pub fn scan(scanner: *const Scanner) !void {
     try ImGuiContext.functions.scan(scanner);
+    ImGuiContext.frameTexture = NoitaString.from("data/ui_gfx/decorations/9piece0_gray.png") catch @panic("OOM");
 }
